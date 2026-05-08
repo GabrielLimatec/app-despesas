@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Entrar | Despesas Domésticas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ request.url_for('static', path='styles.css') }}">
+  </head>
+  <body class="login-page">
+    <main class="login-shell">
+      <section class="login-panel">
+        <p class="eyebrow">Finanças Pessoais</p>
+        <h1>Controle de Despesas</h1>
+        <form method="post" action="{{ request.url_for('login') }}" class="stack">
+          <label for="password">Senha</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" autofocus required>
+          {% if error %}
+            <p class="form-error alert">{{ error }}</p>
+          {% endif %}
+          <button type="submit" class="primary-button">Entrar</button>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>

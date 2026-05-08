@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Despesas Domésticas — {{ current_month | month_label }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ request.url_for('static', path='styles.css') }}">
+  </head>
+  <body>
+
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div>
+          <p class="eyebrow">Finanças Pessoais</p>
+          <h1 class="page-title">Controle de Despesas</h1>
+        </div>
+        <div class="topbar-right">
+          <form method="get" action="{{ request.url_for('dashboard') }}" class="month-selector-form">
+            <label for="month-select" class="sr-only">Mês</label>
+            <select id="month-select" name="month" onchange="this.form.submit()" class="month-select">
+              {% for m in available_months %}
+                <option value="{{ m }}" {% if m == current_month %}selected{% endif %}>{{ m | month_label }}</option>
+              {% endfor %}
+            </select>
+          </form>
+          <form method="post" action="{{ request.url_for('logout') }}">
+            <button class="ghost-button" type="submit">Sair</button>
+          </form>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout">
+      {% if error_message %}
+        <p class="alert error">{{ error_message }}</p>
+      {% endif %}
+      {% if status_message %}
+        <p class="alert success">{{ status_message }}</p>
+      {% endif %}
+
+      <!-- Métricas do mês -->
+      <section class="metrics" aria-label="Resumo do mês">
+        <article class="metric-income">
+          <span>Renda Total</span>
+          <strong>{{ summary.total_income_cents | money }}</strong>
+        </article>
+        <article class="metric-expense">
+          <span>Total Gasto</span>
+          <strong>{{ summary.total_expenses_cents | money }}</strong>
+        </article>
+        <article class="{% if summary.balance_cents >= 0 %}metric-positive{% else %}metric-negative{% endif %}">
+          <span>Saldo Disponível</span>
+          <strong>{{ summary.balance_cents | money }}</strong>
+        </article>
+        <article class="metric-pct">
+          <span>% do Salário Gasto</span>
+          <strong>{{ summary.spent_pct }}%</strong>
+          <div class="progress-bar-wrap">
+            <div class="progress-bar {% if summary.spent_pct > 90 %}danger{% elif summary.spent_pct > 70 %}warning{% else %}ok{% endif %}"
+                 style="width: {{ [summary.spent_pct, 100] | min }}%"></div>
+          </div>
+        </article>
+      </section>
+
+      <div class="main-stack">
+
+        <!-- Gastos por categoria -->
+        {% if summary.by_category %}
+        <section class="panel">
+          <div class="section-heading">
+            <h2>Gastos por Categoria</h2>
+            <span>{{ summary.by_category | length }}</span>
+          </div>
+          <div class="category-bars">
+            {% for cat in summary.by_category %}
+              {% set pct = ((cat.total / summary.total_expenses_cents) * 100) | round | int if summary.total_expenses_cents > 0 else 0 %}
+              <div class="cat-row">
+                <div class="cat-label">
+                  <span class="cat-name">{{ cat.category }}</span>
+                  <span class="cat-amount">{{ cat.total | money }}</span>
+                </div>
+                <div class="cat-bar-track">
+                  <div class="cat-bar-fill" style="width: {{ pct }}%"></div>
+                </div>
+                <span class="cat-pct">{{ pct }}%</span>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+        {% endif %}
+
+        <div class="two-col-grid">
+          <!-- Registrar Renda -->
+          <section class="panel">
+            <div class="section-heading">
+              <h2>Registrar Renda</h2>
+            </div>
+            <form method="post" action="{{ request.url_for('add_income_route') }}" class="expense-form">
+              <input type="hidden" name="month" value="{{ current_month }}">
+              <label for="income-amount">Valor</label>
+              <input id="income-amount" name="amount" type="text" inputmode="decimal" placeholder="0,00" required>
+              <label for="income-desc">Descrição</label>
+              <input id="income-desc" name="description" type="text" placeholder="Salário, freelance, bônus…" required>
+              <button class="income-button" type="submit">Adicionar Renda</button>
+            </form>
+          </section>
+
+          <!-- Registrar Despesa -->
+          <section class="panel">
+            <div class="section-heading">
+              <h2>Registrar Despesa</h2>
+            </div>
+            <form method="post" action="{{ request.url_for('add_expense_route') }}" class="expense-form">
+              <input type="hidden" name="month" value="{{ current_month }}">
+              <label for="exp-amount">Valor</label>
+              <input id="exp-amount" name="amount" type="text" inputmode="decimal" placeholder="0,00" required>
+              <label for="exp-desc">Descrição</label>
+              <input id="exp-desc" name="description" type="text" placeholder="Supermercado, aluguel…" required>
+              <label for="exp-cat">Categoria</label>
+              <select id="exp-cat" name="category" required class="select-input">
+                {% for cat in categories %}
+                  <option value="{{ cat }}">{{ cat }}</option>
+                {% endfor %}
+              </select>
+              <label for="exp-date">Data</label>
+              <input id="exp-date" name="expense_date" type="date" value="{{ today }}" required>
+              <button class="reject-button" type="submit">Adicionar Despesa</button>
+            </form>
+          </section>
+        </div>
+
+        <!-- Lista de Despesas -->
+        <section class="panel">
+            <div class="section-heading">
+              <h2>Despesas do mês</h2>
+              <span>{{ expenses_list | length }}</span>
+            </div>
+            {% if expenses_list %}
+              <div class="expense-list">
+                {% for exp in expenses_list %}
+                  <article class="expense-item" id="exp-{{ exp.id }}">
+                    <div class="expense-left">
+                      <span class="expense-name">{{ exp.description }}</span>
+                      <span class="expense-cat">{{ exp.category }}</span>
+                    </div>
+                    <div class="expense-right">
+                      <strong class="expense-value" id="val-{{ exp.id }}">{{ exp.amount_cents | money }}</strong>
+
+                      <!-- form de edição inline (oculto por padrão) -->
+                      <form class="inline-edit-form" id="edit-form-{{ exp.id }}"
+                            method="post"
+                            action="{{ request.url_for('edit_expense_route', expense_id=exp.id) }}"
+                            style="display:none">
+                        <input type="hidden" name="month" value="{{ current_month }}">
+                        <input class="inline-edit-input" name="amount" type="text" inputmode="decimal"
+                               placeholder="0,00" required>
+                        <button class="save-btn" type="submit" title="Salvar">✓</button>
+                        <button class="cancel-btn" type="button" title="Cancelar"
+                                onclick="cancelEdit({{ exp.id }})">✕</button>
+                      </form>
+
+                      <button class="edit-btn" id="edit-btn-{{ exp.id }}" type="button"
+                              title="Editar valor"
+                              onclick="startEdit({{ exp.id }})">✎</button>
+
+                      <form method="post" action="{{ request.url_for('delete_expense_route', expense_id=exp.id) }}">
+                        <input type="hidden" name="month" value="{{ current_month }}">
+                        <button class="delete-btn" type="submit" title="Remover">✕</button>
+                      </form>
+                    </div>
+                  </article>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="empty-state">Nenhuma despesa registrada.</p>
+            {% endif %}
+        </section>
+
+        <!-- Despesas Recorrentes -->
+        <section class="panel">
+          <div class="section-heading">
+            <h2>Despesas Recorrentes</h2>
+            <span title="Copiadas automaticamente a cada mês novo">{{ recurring | length }}</span>
+          </div>
+          <p class="recurring-hint">Essas despesas são lançadas automaticamente no início de cada mês. Edite os valores ou remova as que não se repetem mais.</p>
+
+          <div class="expense-list">
+            {% for rec in recurring %}
+              <article class="expense-item" id="rec-{{ rec.id }}">
+                <div class="expense-left">
+                  <span class="expense-name">{{ rec.description }}</span>
+                  <span class="expense-cat">{{ rec.category }}</span>
+                </div>
+                <div class="expense-right">
+                  <strong class="expense-value" id="rval-{{ rec.id }}">{{ rec.amount_cents | money }}</strong>
+
+                  <form class="inline-edit-form" id="redit-form-{{ rec.id }}"
+                        method="post"
+                        action="{{ request.url_for('edit_recurring_route', recurring_id=rec.id) }}"
+                        style="display:none">
+                    <input type="hidden" name="month" value="{{ current_month }}">
+                    <input class="inline-edit-input" name="amount" type="text" inputmode="decimal"
+                           placeholder="0,00" required>
+                    <button class="save-btn" type="submit" title="Salvar">✓</button>
+                    <button class="cancel-btn" type="button" title="Cancelar"
+                            onclick="cancelRecEdit({{ rec.id }})">✕</button>
+                  </form>
+
+                  <button class="edit-btn" id="redit-btn-{{ rec.id }}" type="button"
+                          title="Editar valor padrão"
+                          onclick="startRecEdit({{ rec.id }})">✎</button>
+
+                  <form method="post" action="{{ request.url_for('delete_recurring_route', recurring_id=rec.id) }}">
+                    <input type="hidden" name="month" value="{{ current_month }}">
+                    <button class="delete-btn" type="submit" title="Remover da lista recorrente">✕</button>
+                  </form>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+
+          <details class="add-recurring-details">
+            <summary>+ Adicionar recorrente</summary>
+            <form method="post" action="{{ request.url_for('add_recurring_route') }}" class="expense-form recurring-add-form">
+              <input type="hidden" name="month" value="{{ current_month }}">
+              <label for="rec-amount">Valor padrão</label>
+              <input id="rec-amount" name="amount" type="text" inputmode="decimal" placeholder="0,00" required>
+              <label for="rec-desc">Descrição</label>
+              <input id="rec-desc" name="description" type="text" placeholder="Nome da despesa" required>
+              <label for="rec-cat">Categoria</label>
+              <select id="rec-cat" name="category" required class="select-input">
+                {% for cat in categories %}
+                  <option value="{{ cat }}">{{ cat }}</option>
+                {% endfor %}
+              </select>
+              <button class="primary-button" type="submit">Adicionar</button>
+            </form>
+          </details>
+        </section>
+
+      </div>
+    </main>
+  <script>
+    function startEdit(id) {
+      document.getElementById('val-' + id).style.display = 'none';
+      document.getElementById('edit-btn-' + id).style.display = 'none';
+      const form = document.getElementById('edit-form-' + id);
+      form.style.display = 'flex';
+      form.querySelector('input[name="amount"]').focus();
+    }
+    function cancelEdit(id) {
+      document.getElementById('val-' + id).style.display = '';
+      document.getElementById('edit-btn-' + id).style.display = '';
+      document.getElementById('edit-form-' + id).style.display = 'none';
+    }
+    function startRecEdit(id) {
+      document.getElementById('rval-' + id).style.display = 'none';
+      document.getElementById('redit-btn-' + id).style.display = 'none';
+      const form = document.getElementById('redit-form-' + id);
+      form.style.display = 'flex';
+      form.querySelector('input[name="amount"]').focus();
+    }
+    function cancelRecEdit(id) {
+      document.getElementById('rval-' + id).style.display = '';
+      document.getElementById('redit-btn-' + id).style.display = '';
+      document.getElementById('redit-form-' + id).style.display = 'none';
+    }
+  </script>
+  </body>
+</html>
