@@ -15,6 +15,7 @@ from app.config import Settings
 from app.db import connect_database, init_db
 from app.services import (
     CATEGORIES,
+    category_icon,
     add_expense,
     add_income,
     add_recurring,
@@ -25,12 +26,14 @@ from app.services import (
     get_monthly_expenses,
     get_monthly_income,
     get_monthly_summary,
+    get_recurring_summary,
     get_recurring,
     list_available_months,
     money_label,
     parse_money_to_cents,
-    seed_month_if_new,
+    toggle_recurring_payment,
     update_expense_amount,
+    update_income_amount,
     update_recurring_amount,
 )
 
@@ -39,6 +42,7 @@ BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.filters["money"] = money_label
 templates.env.filters["month_label"] = format_month_label
+templates.env.filters["category_icon"] = category_icon
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -54,6 +58,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Controle de Despesas", lifespan=lifespan)
     app.state.settings = resolved_settings
     app.add_middleware(SessionMiddleware, secret_key=resolved_settings.session_secret)
+
+    @app.middleware("http")
+    async def set_app_prefix(request: Request, call_next):
+        prefix = "/app-despesas"
+        path = request.url.path
+        if path == prefix or path.startswith(f"{prefix}/"):
+            # Keep the complete path intact. Starlette uses ``root_path`` to
+            # resolve mounted applications (including /static); removing the
+            # prefix here makes StaticFiles look for a nested "static/static"
+            # directory and the stylesheet is returned as a 404.
+            request.scope["root_path"] = prefix
+        return await call_next(request)
+
     app.mount(
         "/static",
         StaticFiles(directory=str(BASE_DIR / "static")),
@@ -78,6 +95,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         conn,
         month: str,
+        category_filter: str = "Todas",
         *,
         status_message: str | None = None,
         error_message: str | None = None,
@@ -86,7 +104,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         income_list = get_monthly_income(conn, month)
         expenses_list = get_monthly_expenses(conn, month)
         available_months = list_available_months(conn)
-        recurring = get_recurring(conn)
+        recurring = get_recurring(conn, month)
+        if category_filter != "Todas":
+            recurring = [item for item in recurring if item["category"] == category_filter]
+        recurring_summary = get_recurring_summary(recurring)
         return templates.TemplateResponse(
             request,
             "dashboard.html",
@@ -97,8 +118,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "available_months": available_months,
                 "current_month": month,
                 "categories": CATEGORIES,
+                "category_filter": category_filter,
                 "today": date.today().isoformat(),
                 "recurring": recurring,
+                "recurring_summary": recurring_summary,
                 "status_message": status_message,
                 "error_message": error_message,
             },
@@ -137,14 +160,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         month: str | None = None,
         status: str | None = None,
+        category: str = "Todas",
         conn=Depends(open_conn),
         _: None = Depends(require_login),
     ) -> HTMLResponse:
         if not month:
             month = date.today().strftime("%Y-%m")
-        seed_month_if_new(conn, month)
         msg = _status_message(status)
-        return render_dashboard(request, conn, month, status_message=msg)
+        return render_dashboard(request, conn, month, category_filter=category, status_message=msg)
 
     # ── Renda ──────────────────────────────────────────────────────────────────
 
@@ -153,13 +176,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         amount: str = Form(...),
         description: str = Form(...),
+        category: str = Form(...),
         month: str = Form(...),
         conn=Depends(open_conn),
         _: None = Depends(require_login),
     ):
         try:
             cents = parse_money_to_cents(amount)
-            add_income(conn, cents, description, month)
+            add_income(conn, cents, description, category, month)
         except ValueError as exc:
             return render_dashboard(request, conn, month, error_message=str(exc))
         return RedirectResponse(
@@ -181,6 +205,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status_code=303,
         )
 
+    @app.post("/income/{income_id}/edit", name="edit_income_route")
+    async def post_edit_income(
+        request: Request,
+        income_id: int,
+        amount: str = Form(...),
+        month: str = Form(...),
+        conn=Depends(open_conn),
+        _: None = Depends(require_login),
+    ):
+        try:
+            update_income_amount(conn, income_id, parse_money_to_cents(amount))
+        except ValueError as exc:
+            return render_dashboard(request, conn, month, error_message=str(exc))
+        return RedirectResponse(
+            url=f"{request.url_for('dashboard')}?month={month}&status=income_edited",
+            status_code=303,
+        )
+
     # ── Despesas ───────────────────────────────────────────────────────────────
 
     @app.post("/expenses", name="add_expense_route")
@@ -189,14 +231,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         amount: str = Form(...),
         description: str = Form(...),
         category: str = Form(...),
-        expense_date: str = Form(...),
+        expense_date: str | None = Form(None),
         month: str = Form(...),
         conn=Depends(open_conn),
         _: None = Depends(require_login),
     ):
         try:
             cents = parse_money_to_cents(amount)
-            add_expense(conn, cents, description, category, expense_date, month)
+            add_expense(conn, cents, description, category, expense_date or date.today().isoformat(), month)
         except ValueError as exc:
             return render_dashboard(request, conn, month, error_message=str(exc))
         return RedirectResponse(
@@ -245,13 +287,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         amount: str = Form(...),
         description: str = Form(...),
         category: str = Form(...),
+        due_day: int = Form(1),
         month: str = Form(...),
         conn=Depends(open_conn),
         _: None = Depends(require_login),
     ):
         try:
             cents = parse_money_to_cents(amount)
-            add_recurring(conn, description, cents, category)
+            add_recurring(conn, description, cents, category, due_day)
         except ValueError as exc:
             return render_dashboard(request, conn, month, error_message=str(exc))
         return RedirectResponse(
@@ -264,17 +307,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         recurring_id: int,
         amount: str = Form(...),
+        due_day: int = Form(1),
         month: str = Form(...),
         conn=Depends(open_conn),
         _: None = Depends(require_login),
     ):
         try:
             cents = parse_money_to_cents(amount)
-            update_recurring_amount(conn, recurring_id, cents)
+            update_recurring_amount(conn, recurring_id, cents, due_day)
         except ValueError as exc:
             return render_dashboard(request, conn, month, error_message=str(exc))
         return RedirectResponse(
             url=f"{request.url_for('dashboard')}?month={month}&status=recurring_edited",
+            status_code=303,
+        )
+
+    @app.post("/recurring/{recurring_id}/toggle-paid", name="toggle_recurring_paid_route")
+    async def post_toggle_recurring_paid(
+        request: Request,
+        recurring_id: int,
+        month: str = Form(...),
+        conn=Depends(open_conn),
+        _: None = Depends(require_login),
+    ):
+        toggle_recurring_payment(conn, recurring_id, month)
+        return RedirectResponse(
+            url=f"{request.url_for('dashboard')}?month={month}&status=recurring_toggled",
             status_code=303,
         )
 
@@ -303,12 +361,14 @@ def _status_message(status: str | None) -> str | None:
     messages = {
         "income_added":      "Renda registrada com sucesso.",
         "income_deleted":    "Renda removida.",
+        "income_edited":     "Valor da renda atualizado.",
         "expense_added":     "Despesa registrada com sucesso.",
         "expense_deleted":   "Despesa removida.",
         "expense_edited":    "Valor da despesa atualizado.",
         "recurring_added":   "Despesa recorrente adicionada.",
         "recurring_edited":  "Valor da recorrente atualizado.",
         "recurring_deleted": "Despesa recorrente removida.",
+        "recurring_toggled": "Status de pagamento atualizado.",
     }
     return messages.get(status or "")
 

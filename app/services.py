@@ -16,10 +16,26 @@ CATEGORIES = [
     "Outros",
 ]
 
+CATEGORY_ICONS = {
+    "Alimentação": "🍴",
+    "Moradia": "⌂",
+    "Transporte": "🚗",
+    "Saúde": "♥",
+    "Lazer": "♪",
+    "Educação": "🎓",
+    "Vestuário": "◇",
+    "Contas e Serviços": "⚡",
+    "Outros": "•",
+}
+
 
 def money_label(cents: int) -> str:
     value = cents / 100
     return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def category_icon(category: str) -> str:
+    return CATEGORY_ICONS.get(category, "•")
 
 
 def parse_money_to_cents(raw: str) -> int:
@@ -36,10 +52,10 @@ def parse_money_to_cents(raw: str) -> int:
 
 # ── Renda ──────────────────────────────────────────────────────────────────────
 
-def add_income(conn: sqlite3.Connection, amount_cents: int, description: str, month: str) -> None:
+def add_income(conn: sqlite3.Connection, amount_cents: int, description: str, category: str, month: str) -> None:
     conn.execute(
-        "INSERT INTO income (amount_cents, description, month) VALUES (?, ?, ?)",
-        (amount_cents, description, month),
+        "INSERT INTO income (amount_cents, description, category, month) VALUES (?, ?, ?, ?)",
+        (amount_cents, description, category, month),
     )
     conn.commit()
 
@@ -49,12 +65,24 @@ def delete_income(conn: sqlite3.Connection, income_id: int) -> None:
     conn.commit()
 
 
+def update_income_amount(conn: sqlite3.Connection, income_id: int, amount_cents: int) -> None:
+    conn.execute(
+        "UPDATE income SET amount_cents = ? WHERE id = ?",
+        (amount_cents, income_id),
+    )
+    conn.commit()
+
+
 def get_monthly_income(conn: sqlite3.Connection, month: str) -> list[dict]:
     rows = conn.execute(
         "SELECT * FROM income WHERE month = ? ORDER BY created_at DESC",
         (month,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    items = [dict(r) for r in rows]
+    current_month = date.today().strftime("%Y-%m")
+    for item in items:
+        item["overdue"] = bool(month == current_month and not item["paid"] and item["due_day"] < date.today().day)
+    return items
 
 
 # ── Despesas ───────────────────────────────────────────────────────────────────
@@ -92,43 +120,95 @@ def get_monthly_expenses(conn: sqlite3.Connection, month: str) -> list[dict]:
         "SELECT * FROM expenses WHERE month = ? ORDER BY description COLLATE NOCASE ASC",
         (month,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    items = [dict(r) for r in rows]
+    current_month = date.today().strftime("%Y-%m")
+    for item in items:
+        item["overdue"] = bool(month == current_month and not item["paid"] and item["due_day"] < date.today().day)
+    return items
 
 
 # ── Recorrentes ────────────────────────────────────────────────────────────────
 
-def get_recurring(conn: sqlite3.Connection) -> list[dict]:
+def get_recurring(conn: sqlite3.Connection, month: str | None = None) -> list[dict]:
     rows = conn.execute(
         "SELECT * FROM recurring_expenses ORDER BY sort_order, id"
     ).fetchall()
-    return [dict(r) for r in rows]
+    items = [dict(r) for r in rows]
+    target_month = month or date.today().strftime("%Y-%m")
+    paid_ids = {
+        row[0]
+        for row in conn.execute(
+            "SELECT recurring_id FROM recurring_payments WHERE month = ?",
+            (target_month,),
+        ).fetchall()
+    }
+    for item in items:
+        item["paid"] = item["id"] in paid_ids
+    return items
 
 
 def add_recurring(
-    conn: sqlite3.Connection, description: str, amount_cents: int, category: str
+    conn: sqlite3.Connection,
+    description: str,
+    amount_cents: int,
+    category: str,
+    due_day: int = 1,
 ) -> None:
+    if not 1 <= due_day <= 31:
+        raise ValueError("O dia de vencimento deve estar entre 1 e 31.")
     max_order = conn.execute(
         "SELECT COALESCE(MAX(sort_order), 0) FROM recurring_expenses"
     ).fetchone()[0]
     conn.execute(
-        "INSERT INTO recurring_expenses (description, amount_cents, category, sort_order) VALUES (?, ?, ?, ?)",
-        (description, amount_cents, category, max_order + 1),
+        "INSERT INTO recurring_expenses (description, amount_cents, category, due_day, sort_order) VALUES (?, ?, ?, ?, ?)",
+        (description, amount_cents, category, due_day, max_order + 1),
     )
     conn.commit()
 
 
 def update_recurring_amount(
-    conn: sqlite3.Connection, recurring_id: int, amount_cents: int
+    conn: sqlite3.Connection, recurring_id: int, amount_cents: int, due_day: int = 1
 ) -> None:
+    if not 1 <= due_day <= 31:
+        raise ValueError("O dia de vencimento deve estar entre 1 e 31.")
     conn.execute(
-        "UPDATE recurring_expenses SET amount_cents = ? WHERE id = ?",
-        (amount_cents, recurring_id),
+        "UPDATE recurring_expenses SET amount_cents = ?, due_day = ? WHERE id = ?",
+        (amount_cents, due_day, recurring_id),
     )
     conn.commit()
 
 
 def delete_recurring(conn: sqlite3.Connection, recurring_id: int) -> None:
     conn.execute("DELETE FROM recurring_expenses WHERE id = ?", (recurring_id,))
+    conn.commit()
+
+
+def get_recurring_summary(recurring: list[dict]) -> dict:
+    total = sum(item.get("amount_cents", 0) for item in recurring)
+    paid = sum(item.get("amount_cents", 0) for item in recurring if item.get("paid"))
+    pending = total - paid
+    return {
+        "total_cents": total,
+        "paid_cents": paid,
+        "pending_cents": pending,
+    }
+
+
+def toggle_recurring_payment(conn: sqlite3.Connection, recurring_id: int, month: str) -> None:
+    row = conn.execute(
+        "SELECT 1 FROM recurring_payments WHERE recurring_id = ? AND month = ?",
+        (recurring_id, month),
+    ).fetchone()
+    if row:
+        conn.execute(
+            "DELETE FROM recurring_payments WHERE recurring_id = ? AND month = ?",
+            (recurring_id, month),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO recurring_payments (recurring_id, month) VALUES (?, ?)",
+            (recurring_id, month),
+        )
     conn.commit()
 
 
@@ -139,12 +219,6 @@ def seed_month_if_new(conn: sqlite3.Connection, month: str) -> None:
     if already:
         return
 
-    first_day = f"{month}-01"
-    recurring = get_recurring(conn)
-    conn.executemany(
-        "INSERT INTO expenses (amount_cents, description, category, expense_date, month) VALUES (?, ?, ?, ?, ?)",
-        [(r["amount_cents"], r["description"], r["category"], first_day, month) for r in recurring],
-    )
     conn.execute("INSERT INTO seeded_months (month) VALUES (?)", (month,))
     conn.commit()
 

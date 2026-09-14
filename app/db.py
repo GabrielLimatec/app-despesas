@@ -48,6 +48,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
             amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
             description  TEXT NOT NULL,
+            category     TEXT NOT NULL DEFAULT 'Outros',
             month        TEXT NOT NULL,
             created_at   TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -67,7 +68,16 @@ def init_db(conn: sqlite3.Connection) -> None:
             description  TEXT NOT NULL,
             amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
             category     TEXT NOT NULL,
+            due_day      INTEGER NOT NULL DEFAULT 1 CHECK (due_day BETWEEN 1 AND 31),
             sort_order   INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS recurring_payments (
+            recurring_id INTEGER NOT NULL,
+            month        TEXT NOT NULL,
+            paid_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (recurring_id, month),
+            FOREIGN KEY (recurring_id) REFERENCES recurring_expenses(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS seeded_months (
@@ -75,6 +85,13 @@ def init_db(conn: sqlite3.Connection) -> None:
         );
         """
     )
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(recurring_expenses)")}
+    if "due_day" not in columns:
+        conn.execute("ALTER TABLE recurring_expenses ADD COLUMN due_day INTEGER NOT NULL DEFAULT 1")
+    income_columns = {row[1] for row in conn.execute("PRAGMA table_info(income)")}
+    if "category" not in income_columns:
+        conn.execute("ALTER TABLE income ADD COLUMN category TEXT NOT NULL DEFAULT 'Outros'")
 
     existing = conn.execute("SELECT COUNT(*) FROM recurring_expenses").fetchone()[0]
     if existing == 0:
