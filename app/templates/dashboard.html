@@ -165,117 +165,54 @@
               <button class="income-button" type="submit">Adicionar Despesa</button>
               <p class="form-note">Registre compras, contas e outros gastos do mês.</p>
             </form>
-            {% if expenses_list %}
-              <div class="compact-entry-list" aria-label="Despesas lançadas">
-                {% for expense in expenses_list %}
-                  <article class="compact-entry">
-                    <div>
-                      <strong>{{ expense.description }}</strong>
-                      <span>{{ expense.category }} · {{ expense.expense_date }}</span>
-                    </div>
-                    <div class="compact-entry-actions">
-                      <strong class="expense-value" id="expense-val-{{ expense.id }}">{{ expense.amount_cents | money }}</strong>
-                      <form class="inline-edit-form" id="expense-edit-form-{{ expense.id }}" method="post" action="{{ request.url_for('edit_expense_route', expense_id=expense.id) }}" style="display:none">
-                        <input type="hidden" name="month" value="{{ current_month }}">
-                        <input class="inline-edit-input" name="amount" type="text" inputmode="decimal" placeholder="0,00" required>
-                        <button class="save-btn" type="submit" title="Salvar">✓</button>
-                        <button class="cancel-btn" type="button" title="Cancelar" onclick="cancelExpenseEdit({{ expense.id }})">✕</button>
-                      </form>
-                      <button class="edit-btn" id="expense-edit-btn-{{ expense.id }}" type="button" title="Editar despesa" onclick="startExpenseEdit({{ expense.id }})">✎</button>
-                      <form method="post" action="{{ request.url_for('delete_expense_route', expense_id=expense.id) }}">
-                        <input type="hidden" name="month" value="{{ current_month }}">
-                        <button class="delete-btn" type="submit" title="Remover despesa">✕</button>
-                      </form>
-                    </div>
-                  </article>
-                {% endfor %}
-              </div>
-            {% endif %}
           </section>
         </div>
 
-        <!-- Despesas Recorrentes -->
+        <!-- Despesas lançadas manualmente -->
         <section class="panel recurring-panel">
           <div class="section-heading">
             <div>
-              <p class="section-kicker">Prioridade do mês</p>
-              <h2>Despesas a pagar neste mês</h2>
+              <p class="section-kicker">Lançamentos do mês</p>
+              <h2>Despesas lançadas neste mês</h2>
             </div>
             <div class="recurring-summary">
-              <strong>{{ recurring | sum(attribute="amount_cents") | money }}</strong>
-              <span>{{ recurring | length }} contas</span>
+              <strong>{{ summary.total_expenses_cents | money }}</strong>
+              <span>{{ expenses_list | length }} despesas</span>
             </div>
           </div>
           <div class="recurring-totals">
-            <div><span>Total</span><strong>{{ recurring_summary.total_cents | money }}</strong></div>
-            <div class="is-paid"><span>Pago</span><strong>{{ recurring_summary.paid_cents | money }}</strong></div>
-            <div class="is-pending"><span>Falta pagar</span><strong>{{ recurring_summary.pending_cents | money }}</strong></div>
+            <div><span>Total lançado</span><strong>{{ summary.total_expenses_cents | money }}</strong></div>
+            <div class="is-paid"><span>Quantidade</span><strong>{{ expenses_list | length }}</strong></div>
+            <div class="is-pending"><span>Mês</span><strong>{{ current_month | month_label }}</strong></div>
           </div>
-          <p class="recurring-hint">Contas fixas lançadas automaticamente no início do mês. Edite os valores ou remova as que não se repetem mais.</p>
+          <p class="recurring-hint">Somente as despesas que você registrar acima aparecem nesta lista.</p>
 
           <div class="expense-list">
-            {% for rec in recurring %}
-              <article class="expense-item" id="rec-{{ rec.id }}">
+            {% for expense in expenses_list %}
+              <article class="expense-item" id="expense-{{ expense.id }}">
                 <div class="expense-left">
-                  <span class="expense-name">{{ rec.description }}</span>
-                  <span class="expense-cat"><span class="category-icon" aria-hidden="true">{{ rec.category | category_icon }}</span> {{ rec.category }} · vence dia {{ rec.due_day }}</span>
+                  <span class="expense-name">{{ expense.description }}</span>
+                  <span class="expense-cat"><span class="category-icon" aria-hidden="true">{{ expense.category | category_icon }}</span> {{ expense.category }} · {{ expense.expense_date }}</span>
                 </div>
                 <div class="expense-right">
-                  <strong class="expense-value {% if rec.paid %}paid-value{% endif %}" id="rval-{{ rec.id }}">{{ rec.amount_cents | money }}</strong>
-
-                  <form method="post" action="{{ request.url_for('toggle_recurring_paid_route', recurring_id=rec.id) }}">
+                  <strong class="expense-value" id="expense-val-{{ expense.id }}">{{ expense.amount_cents | money }}</strong>
+                  <form class="inline-edit-form" id="expense-edit-form-{{ expense.id }}" method="post" action="{{ request.url_for('edit_expense_route', expense_id=expense.id) }}" style="display:none">
                     <input type="hidden" name="month" value="{{ current_month }}">
-                    <button class="paid-toggle {% if rec.paid %}paid{% endif %}" type="submit">
-                      {% if rec.paid %}Pago{% else %}Pagar{% endif %}
-                    </button>
-                  </form>
-
-                  <form class="inline-edit-form" id="redit-form-{{ rec.id }}"
-                        method="post"
-                        action="{{ request.url_for('edit_recurring_route', recurring_id=rec.id) }}"
-                        style="display:none">
-                    <input type="hidden" name="month" value="{{ current_month }}">
-                    <input class="inline-edit-input" name="amount" type="text" inputmode="decimal"
-                           placeholder="0,00" required>
-                          <input class="inline-edit-input due-day-input" name="due_day" type="number" min="1" max="31"
-                            value="{{ rec.due_day }}" aria-label="Dia do vencimento" required>
+                    <input class="inline-edit-input" name="amount" type="text" inputmode="decimal" placeholder="0,00" required>
                     <button class="save-btn" type="submit" title="Salvar">✓</button>
-                    <button class="cancel-btn" type="button" title="Cancelar"
-                            onclick="cancelRecEdit({{ rec.id }})">✕</button>
+                    <button class="cancel-btn" type="button" title="Cancelar" onclick="cancelExpenseEdit({{ expense.id }})">✕</button>
                   </form>
-
-                  <button class="edit-btn" id="redit-btn-{{ rec.id }}" type="button"
-                          title="Editar valor padrão"
-                          onclick="startRecEdit({{ rec.id }})">✎</button>
-
-                  <form method="post" action="{{ request.url_for('delete_recurring_route', recurring_id=rec.id) }}">
+                  <button class="edit-btn" id="expense-edit-btn-{{ expense.id }}" type="button" title="Editar despesa" onclick="startExpenseEdit({{ expense.id }})">✎</button>
+                  <form method="post" action="{{ request.url_for('delete_expense_route', expense_id=expense.id) }}">
                     <input type="hidden" name="month" value="{{ current_month }}">
-                    <button class="delete-btn" type="submit" title="Remover da lista recorrente">✕</button>
+                    <button class="delete-btn" type="submit" title="Remover despesa">✕</button>
                   </form>
                 </div>
               </article>
+            {% else %}
+              <p class="empty-state">Nenhuma despesa lançada neste mês.</p>
             {% endfor %}
           </div>
-
-          <details class="add-recurring-details">
-            <summary>+ Adicionar recorrente</summary>
-            <form method="post" action="{{ request.url_for('add_recurring_route') }}" class="expense-form recurring-add-form">
-              <input type="hidden" name="month" value="{{ current_month }}">
-              <label for="rec-amount"><span class="field-icon" aria-hidden="true">$</span> Valor padrão</label>
-              <input id="rec-amount" name="amount" type="text" inputmode="decimal" placeholder="0,00" required>
-              <label for="rec-desc"><span class="field-icon" aria-hidden="true">≡</span> Descrição</label>
-              <input id="rec-desc" name="description" type="text" placeholder="Nome da despesa" required>
-              <label for="rec-cat"><span class="field-icon" aria-hidden="true">●</span> Categoria</label>
-              <select id="rec-cat" name="category" required class="select-input">
-                {% for cat in categories %}
-                  <option value="{{ cat }}">{{ cat }}</option>
-                {% endfor %}
-              </select>
-              <label for="rec-due-day"><span class="field-icon" aria-hidden="true">◷</span> Dia do vencimento</label>
-              <input id="rec-due-day" name="due_day" type="number" min="1" max="31" value="1" required>
-              <button class="primary-button" type="submit">Adicionar</button>
-            </form>
-          </details>
         </section>
 
       </div>
