@@ -165,6 +165,32 @@
               <button class="income-button" type="submit">Adicionar Despesa</button>
               <p class="form-note">Registre compras, contas e outros gastos do mês.</p>
             </form>
+            {% if expenses_list %}
+              <div class="compact-entry-list" aria-label="Despesas lançadas">
+                {% for expense in expenses_list %}
+                  <article class="compact-entry">
+                    <div>
+                      <strong>{{ expense.description }}</strong>
+                      <span>{{ expense.category }} · {{ expense.expense_date }}</span>
+                    </div>
+                    <div class="compact-entry-actions">
+                      <strong class="expense-value" id="expense-val-{{ expense.id }}">{{ expense.amount_cents | money }}</strong>
+                      <form class="inline-edit-form" id="expense-edit-form-{{ expense.id }}" method="post" action="{{ request.url_for('edit_expense_route', expense_id=expense.id) }}" style="display:none">
+                        <input type="hidden" name="month" value="{{ current_month }}">
+                        <input class="inline-edit-input" name="amount" type="text" inputmode="decimal" placeholder="0,00" required>
+                        <button class="save-btn" type="submit" title="Salvar">✓</button>
+                        <button class="cancel-btn" type="button" title="Cancelar" onclick="cancelExpenseEdit({{ expense.id }})">✕</button>
+                      </form>
+                      <button class="edit-btn" id="expense-edit-btn-{{ expense.id }}" type="button" title="Editar despesa" onclick="startExpenseEdit({{ expense.id }})">✎</button>
+                      <form method="post" action="{{ request.url_for('delete_expense_route', expense_id=expense.id) }}">
+                        <input type="hidden" name="month" value="{{ current_month }}">
+                        <button class="delete-btn" type="submit" title="Remover despesa">✕</button>
+                      </form>
+                    </div>
+                  </article>
+                {% endfor %}
+              </div>
+            {% endif %}
           </section>
         </div>
 
@@ -266,6 +292,18 @@
       document.getElementById('income-val-' + id).style.display = '';
       document.getElementById('income-edit-btn-' + id).style.display = '';
       document.getElementById('income-edit-form-' + id).style.display = 'none';
+    }
+    function startExpenseEdit(id) {
+      document.getElementById('expense-val-' + id).style.display = 'none';
+      document.getElementById('expense-edit-btn-' + id).style.display = 'none';
+      const form = document.getElementById('expense-edit-form-' + id);
+      form.style.display = 'flex';
+      form.querySelector('input[name="amount"]').focus();
+    }
+    function cancelExpenseEdit(id) {
+      document.getElementById('expense-val-' + id).style.display = '';
+      document.getElementById('expense-edit-btn-' + id).style.display = '';
+      document.getElementById('expense-edit-form-' + id).style.display = 'none';
     }
     function startEdit(id) {
       document.getElementById('val-' + id).style.display = 'none';

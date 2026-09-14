@@ -78,11 +78,7 @@ def get_monthly_income(conn: sqlite3.Connection, month: str) -> list[dict]:
         "SELECT * FROM income WHERE month = ? ORDER BY created_at DESC",
         (month,),
     ).fetchall()
-    items = [dict(r) for r in rows]
-    current_month = date.today().strftime("%Y-%m")
-    for item in items:
-        item["overdue"] = bool(month == current_month and not item["paid"] and item["due_day"] < date.today().day)
-    return items
+    return [dict(r) for r in rows]
 
 
 # ── Despesas ───────────────────────────────────────────────────────────────────
