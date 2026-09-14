@@ -192,13 +192,18 @@
               <article class="expense-item" id="expense-{{ expense.id }}">
                 <div class="expense-left">
                   <span class="expense-name">{{ expense.description }}</span>
-                  <span class="expense-cat"><span class="category-icon" aria-hidden="true">{{ expense.category | category_icon }}</span> {{ expense.category }} · {{ expense.expense_date }}</span>
+                  <span class="expense-cat"><span class="category-icon" aria-hidden="true">{{ expense.description | expense_icon(expense.category) }}</span> {{ expense.category }} · {{ expense.expense_date }}</span>
                 </div>
                 <div class="expense-right">
                   <strong class="expense-value" id="expense-val-{{ expense.id }}">{{ expense.amount_cents | money }}</strong>
                   <form class="inline-edit-form" id="expense-edit-form-{{ expense.id }}" method="post" action="{{ request.url_for('edit_expense_route', expense_id=expense.id) }}" style="display:none">
                     <input type="hidden" name="month" value="{{ current_month }}">
                     <input class="inline-edit-input" name="amount" type="text" inputmode="decimal" placeholder="0,00" required>
+                    <select class="inline-edit-input" name="category" aria-label="Categoria da despesa" required>
+                      {% for cat in categories %}
+                        <option value="{{ cat }}" {% if cat == expense.category %}selected{% endif %}>{{ cat }}</option>
+                      {% endfor %}
+                    </select>
                     <button class="save-btn" type="submit" title="Salvar">✓</button>
                     <button class="cancel-btn" type="button" title="Cancelar" onclick="cancelExpenseEdit({{ expense.id }})">✕</button>
                   </form>

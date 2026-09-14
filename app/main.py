@@ -16,6 +16,7 @@ from app.db import connect_database, init_db
 from app.services import (
     CATEGORIES,
     category_icon,
+    expense_icon,
     add_expense,
     add_income,
     add_recurring,
@@ -32,7 +33,7 @@ from app.services import (
     money_label,
     parse_money_to_cents,
     toggle_recurring_payment,
-    update_expense_amount,
+    update_expense,
     update_income_amount,
     update_recurring_amount,
 )
@@ -43,6 +44,7 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.filters["money"] = money_label
 templates.env.filters["month_label"] = format_month_label
 templates.env.filters["category_icon"] = category_icon
+templates.env.filters["expense_icon"] = expense_icon
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -251,13 +253,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         expense_id: int,
         amount: str = Form(...),
+        category: str = Form(...),
         month: str = Form(...),
         conn=Depends(open_conn),
         _: None = Depends(require_login),
     ):
         try:
             cents = parse_money_to_cents(amount)
-            update_expense_amount(conn, expense_id, cents)
+            update_expense(conn, expense_id, cents, category)
         except ValueError as exc:
             return render_dashboard(request, conn, month, error_message=str(exc))
         return RedirectResponse(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import unicodedata
 from datetime import date
 
 
@@ -17,16 +18,32 @@ CATEGORIES = [
 ]
 
 CATEGORY_ICONS = {
-    "Alimentação": "🍴",
-    "Moradia": "⌂",
+    "Alimentação": "🍽️",
+    "Moradia": "🏠",
     "Transporte": "🚗",
-    "Saúde": "♥",
-    "Lazer": "♪",
+    "Saúde": "🩺",
+    "Lazer": "🎉",
     "Educação": "🎓",
-    "Vestuário": "◇",
-    "Contas e Serviços": "⚡",
-    "Outros": "•",
+    "Vestuário": "👕",
+    "Contas e Serviços": "🧾",
+    "Outros": "📌",
 }
+
+DESCRIPTION_ICONS = (
+    (("internet", "wifi", "wi-fi"), "📶"),
+    (("celular", "telefone"), "📱"),
+    (("cagece", "agua"), "💧"),
+    (("enel", "energia", "luz"), "💡"),
+    (("cartao",), "💳"),
+    (("escola", "faculdade", "curso"), "🎓"),
+    (("carro", "combustivel", "gasolina"), "🚗"),
+    (("saude", "medico", "farmacia"), "🩺"),
+    (("mercado", "supermercado"), "🛒"),
+    (("aluguel", "casa", "obra"), "🏠"),
+    (("imposto", "contador"), "🧾"),
+    (("seguro",), "🛡️"),
+    (("reserva",), "🏦"),
+)
 
 
 def money_label(cents: int) -> str:
@@ -35,7 +52,16 @@ def money_label(cents: int) -> str:
 
 
 def category_icon(category: str) -> str:
-    return CATEGORY_ICONS.get(category, "•")
+    return CATEGORY_ICONS.get(category, "📌")
+
+
+def expense_icon(description: str, category: str) -> str:
+    normalized = unicodedata.normalize("NFD", description.casefold())
+    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
+    for keywords, icon in DESCRIPTION_ICONS:
+        if any(keyword in normalized for keyword in keywords):
+            return icon
+    return category_icon(category)
 
 
 def parse_money_to_cents(raw: str) -> int:
@@ -98,10 +124,10 @@ def add_expense(
     conn.commit()
 
 
-def update_expense_amount(conn: sqlite3.Connection, expense_id: int, amount_cents: int) -> None:
+def update_expense(conn: sqlite3.Connection, expense_id: int, amount_cents: int, category: str) -> None:
     conn.execute(
-        "UPDATE expenses SET amount_cents = ? WHERE id = ?",
-        (amount_cents, expense_id),
+        "UPDATE expenses SET amount_cents = ?, category = ? WHERE id = ?",
+        (amount_cents, category, expense_id),
     )
     conn.commit()
 
